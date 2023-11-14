@@ -57,11 +57,13 @@ def log(filename: str, text: str):
 
 
 
-def train(model, train_dataloader, test_dataloader, criterion, args):
+def train(model, optimizer, train_dataloader, test_dataloader, criterion, args):
     
     losses = AverageMeter()
     top1 = AverageMeter()
     top5 = AverageMeter()
+    top1_eval = AverageMeter()
+    top5_eval = AverageMeter()
     
     model_device = next(model.parameters()).device
 
@@ -69,7 +71,6 @@ def train(model, train_dataloader, test_dataloader, criterion, args):
         model = model.to(args.device)
         
     model.train()
-    optimizer = _optimizers[args.optimizer](model.parameters(), lr=args.lr, momentum=args.momentum)
     
     n_epochs = args.epochs
     
@@ -95,16 +96,34 @@ def train(model, train_dataloader, test_dataloader, criterion, args):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+        
+        #if epoch_num % args.val_freq == 0:
             
-    if epoch_num % args.print_freq == 0:
-        print('Epoch: [{0}][{1}/{2}]\t'
-                  'Loss {loss.avg:.4f}\t'
-                  'Acc@1 {top1.avg:.3f}\t'
-                  'Acc@5 {top5.avg:.3f}'.format(
-                epoch_num, loss=losses, top1=top1, top5=top5))
+        with torch.no_grad():
+            for batch in tqdm(test_dataloader):
+                inputs, targets = batch
+                inputs = inputs.to(args.device)
+                targets = targets.to(args.device)
+            
+                b_size = inputs.size(0)
+                
+                outputs = model(inputs)
+                acc1, acc5 = accuracy(outputs, targets, topk=(1, 5))
+                top1_eval.update(acc1.item(), b_size)
+                top5_eval.update(acc5.item(), b_size)
+            
+        if epoch_num % args.print_freq == 0:
+            print('Epoch: {epoch_num}\t'
+                    'Loss {loss.avg:.4f}\t'
+                    'Acc@1 {top1.avg:.3f}\t'
+                    'Acc@5 {top5.avg:.3f}\t'
+                    'Acc@1 val {top1_eval.avg:.3f}\t'
+                    'Acc@5 val {top5_eval.avg:.3f}\t'.format(epoch_num=epoch_num + 1, loss=losses, top1=top1, top5=top5, top1_eval=top1_eval, top5_eval=top5_eval))
             
         torch.save({
         'epoch': epoch_num + 1,
         'model_name': args.model_name,
         'state_dict': model.state_dict(),
         }, os.path.join(args.outdir, args.expname+ '_checkpoint.pth.tar'))        
+        
+    return (losses.avg, top1.avg, top1_eval.avg)
