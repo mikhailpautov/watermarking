@@ -1,12 +1,13 @@
 import torch
 import torchvision
 import argparse
+import copy
 
-from datasets import get_dataset, DATASETS, get_normalize_layer
+from datasets import get_dataset, DATASETS, get_normalize_layer, get_num_classes
 from torch.utils.data import DataLoader, Dataset
 from torch.nn import CrossEntropyLoss
 from global_options import _models, _optimizers
-from aux import train, accuracy
+from aux import train, accuracy, flatten_params, recover_flattened
 
 
 
@@ -45,7 +46,9 @@ if __name__ == '__main__':
                             num_workers = args.workers, pin_memory=args.pin_memory)
     
     
-    model = _models[args.model_name]()
+    num_classes = get_num_classes(args.dataset)
+    model = _models[args.model_name](num_classes=num_classes)
+    
     optimizer = _optimizers[args.optimizer](model.parameters(), lr=args.lr, momentum=args.momentum)
     criterion = CrossEntropyLoss().to(args.device)
     
@@ -56,3 +59,35 @@ if __name__ == '__main__':
     
     
     train(model=model, optimizer=optimizer, train_dataloader=train_loader, test_dataloader=test_loader, criterion=criterion, args=args)
+    
+    
+    
+    model.load_state_dict(torch.load('/workspace/_cifar10_1_checkpoint.pth.tar')['state_dict'])
+    model.eval()
+    
+    
+    
+    flatten_dict = flatten_params(model.parameters())
+    init_params, init_indices = flatten_dict['params'], flatten_dict['indices']
+
+    sigma = 1e-4
+    
+    delta = sigma * torch.randn_like(init_params)
+    new_params = init_params + delta
+    
+    
+    model_copy = copy.deepcopy(model)
+    
+    
+    new_params_unfl = recover_flattened(new_params, init_indices, model_copy) 
+    
+    for i, params in enumerate(model_copy.parameters()):
+        params.data = new_params_unfl[i].data
+    
+    
+    
+    x = torch.ones(1, 3, 28, 28)
+    print(model(x))
+    print(model_copy(x))
+    
+    #train(model=model, optimizer=optimizer, train_dataloader=train_loader, test_dataloader=test_loader, criterion=criterion, args=args)

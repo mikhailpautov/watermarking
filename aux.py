@@ -127,3 +127,35 @@ def train(model, optimizer, train_dataloader, test_dataloader, criterion, args):
         }, os.path.join(args.outdir, args.expname+ '_checkpoint.pth.tar'))        
         
     return (losses.avg, top1.avg, top1_eval.avg)
+
+def flatten_params(parameters):
+    """
+    flattens all parameters into a single column vector. Returns the dictionary to recover them
+    :param: parameters: a generator or list of all the parameters
+    :return: a dictionary: {"params": [#params, 1],
+    "indices": [(start index, end index) for each param] **Note end index in uninclusive**
+
+    """
+    l = [torch.flatten(p) for p in parameters]
+    indices = []
+    s = 0
+    for p in l:
+        size = p.shape[0]
+        indices.append((s, s+size))
+        s += size
+    flat = torch.cat(l).view(-1, 1)
+    return {"params": flat, "indices": indices}
+
+
+def recover_flattened(flat_params, indices, model):
+    """
+    Gives a list of recovered parameters from their flattened form
+    :param flat_params: [#params, 1]
+    :param indices: a list detaling the start and end index of each param [(start, end) for param]
+    :param model: the model that gives the params with correct shapes
+    :return: the params, reshaped to the ones in the model, with the same order as those in the model
+    """
+    l = [flat_params[s:e] for (s, e) in indices]
+    for i, p in enumerate(model.parameters()):
+        l[i] = l[i].view(*p.shape)
+    return l
