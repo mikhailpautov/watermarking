@@ -6,15 +6,14 @@ os.environ["CUDA_VISIBLE_DEVICES"]="3"
 
 import torch
 import torchvision.datasets as datasets
-from torch.utils.data import DataLoader, Subset
+from torch.utils.data import DataLoader
 import torchvision.transforms as transforms
-from torchvision.models import resnet50
 from torch import nn
 from torchvision.models import densenet201
 
 from models import resnet34
 
-from utils import steal_train, models_mse, get_dataset, evaluate_model, flip_labels
+from utils import steal_train, get_dataset, evaluate_model
 
 from absl import app, flags
 
