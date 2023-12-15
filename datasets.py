@@ -36,6 +36,8 @@ def get_dataset(dataset: str, split: str) -> Dataset:
         return _mnist(split)
     elif dataset == "fashionmnist":
         return _fashion_mnist(split)
+    else:
+        raise Exception("Unknown dataset")
 
 
 def get_num_classes(dataset: str):
@@ -46,6 +48,8 @@ def get_num_classes(dataset: str):
         return 10
     elif dataset == "mnist":
         return 10
+    else:
+        raise Exception("Unknown dataset")
 
 
 def get_dataset_shape(dataset: str):
@@ -56,7 +60,8 @@ def get_dataset_shape(dataset: str):
         return (3, 32, 32)
     elif dataset == "mnist":
         return (1, 28, 28)
-
+    else:
+        raise Exception("Unknown dataset")
 
 def get_normalize_layer(dataset: str, device=None) -> torch.nn.Module:
     """Return the dataset's normalization layer"""
@@ -88,10 +93,15 @@ def _cifar10(split: str) -> Dataset:
         return datasets.CIFAR10("./dataset_cache", train=True, download=True, transform=transforms.Compose([
             transforms.RandomCrop(32, padding=4),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_CIFAR10_MEAN, std=_CIFAR10_STDDEV)
         ]))
     elif split == "test":
-        return datasets.CIFAR10("./dataset_cache", train=False, download=True, transform=transforms.ToTensor())
+        return datasets.CIFAR10("./dataset_cache", train=False, download=True, transform=transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_CIFAR10_MEAN, std=_CIFAR10_STDDEV)
+        ]))
 
 
 def _imagenet(split: str) -> Dataset:
@@ -104,23 +114,32 @@ def _imagenet(split: str) -> Dataset:
         transform = transforms.Compose([
             transforms.RandomSizedCrop(224),
             transforms.RandomHorizontalFlip(),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STDDEV)
         ])
     elif split == "test":
         subdir = os.path.join(dir, "val")
         transform = transforms.Compose([
             transforms.Scale(256),
             transforms.CenterCrop(224),
-            transforms.ToTensor()
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_IMAGENET_MEAN, std=_IMAGENET_STDDEV)
         ])
     return datasets.ImageFolder(subdir, transform)
 
 
 def _mnist(split: str) -> Dataset:
     if split == "train":
-        return datasets.MNIST("./dataset_cache", train=True, download=True, transform=transforms.ToTensor())
+        return datasets.MNIST("./dataset_cache", train=True, download=True, transform=transforms.Compose([
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_MNIST_MEAN, std=_MNIST_STDDEV)
+        ]))
     elif split == "test":
-        return datasets.MNIST("./dataset_cache", train=False, download=True, transform=transforms.ToTensor())
+        return datasets.MNIST("./dataset_cache", train=False, download=True, transform=transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_MNIST_MEAN, std=_MNIST_STDDEV)
+        ]))
 
 
 def _fashion_mnist(split: str) -> Dataset:
@@ -131,6 +150,27 @@ def _fashion_mnist(split: str) -> Dataset:
         ]))
     elif split == "test":
         return datasets.FashionMNIST("./dataset_cache", train=False, download=True, transform=transforms.ToTensor())
+
+
+def get_bounds(dataset):
+    if dataset == "imagenet":
+        dataset_mean, dataset_std = _IMAGENET_MEAN, _IMAGENET_STDDEV
+    elif dataset == "cifar10":
+        dataset_mean, dataset_std = _CIFAR10_MEAN, _CIFAR10_STDDEV
+    elif dataset == "mnist":
+        dataset_mean, dataset_std = _MNIST_MEAN, _MNIST_STDDEV
+    else:
+        raise Exception("Unknown dataset")
+    
+    dataset_mean, dataset_std = torch.tensor(dataset_mean), torch.tensor(dataset_std)
+    
+    zeros = torch.zeros_like(dataset_mean)
+    zeros_to = (zeros - dataset_mean) / dataset_std
+    ones = torch.ones_like(dataset_mean)
+    ones_to = (ones - dataset_mean) / dataset_std
+    l, r = min(zeros_to).item(), max(ones_to).item()
+    
+    return (l, r)
 
 
 class NormalizeLayer(torch.nn.Module):
