@@ -25,27 +25,20 @@ class BASE_DATASET(Dataset):
         self.X = []
         self.y = []
         
-        self.train_dataset = get_dataset(args.dataset, 'train')
-        self.test_dataset = get_dataset(args.dataset, 'test')
-        self.num_classes = get_num_classes(args.dataset)
-        self.bounds = get_bounds(args.dataset)
-        
-        # model = _models[args.model_name](num_classes=num_classes)
-        # model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
-        
-        self.model = resnet34()
-        self.model.load_state_dict(torch.load(args.model_path, map_location='cpu')['model'])
-        self.model.eval()
+        # size_ = 512
+        # test_dataset_,  _= torch.utils.data.random_split(args.test_dataset, [size_, len(args.test_dataset) - size_])
+        # dataloader = DataLoader(test_dataset_, shuffle=False, batch_size=512)
+        # acc_model = evaluate_model(args.model, dataloader, args.device)
         
         ### Collect adversarial examples ###
         adv_dataset = self.generate()
         
         ### Reject sampling. Compute predictions of proxy models ###
-        flatten_dict = flatten_params(self.model.parameters())
+        flatten_dict = flatten_params(args.model.parameters())
         init_params, init_indices = flatten_dict['params'], flatten_dict['indices']    
 
         FLAGS = []
-        model_copy = copy.deepcopy(self.model)
+        model_copy = copy.deepcopy(args.model)
         model_copy.to(args.device)
         
         for i in range(args.M):    
@@ -87,7 +80,7 @@ class BASE_DATASET(Dataset):
         
         
         ### Reject sampling. Reject non-common adversarial examples ###
-        print(FLAGS.shape)
+        
         final_size = 0
         new_adv_dataset = []
         for i, (advs, labels) in enumerate(adv_dataset):
@@ -115,7 +108,7 @@ class BASE_DATASET(Dataset):
 
 class ADV_DATASET_(BASE_DATASET):
     def generate(self):
-        fmodel = fb.PyTorchModel(self.model, bounds=self.bounds, device=args.device)
+        fmodel = fb.PyTorchModel(args.model, bounds=args.bounds, device=args.device)
         attack = fb.attacks.LinfFastGradientAttack(random_start=True)
         
         epsilons = 0.02  # for adversaarial examples
@@ -124,9 +117,9 @@ class ADV_DATASET_(BASE_DATASET):
         
         # train_dataset or test_dataset ?
         while True:
-            idx = torch.randint(0, len(self.test_dataset), (1,)).item()
-            image, label = self.test_dataset[idx]
-            logits = self.model(image.unsqueeze(dim=0).to(args.device))
+            idx = torch.randint(0, len(args.test_dataset), (1,)).item()
+            image, label = args.test_dataset[idx]
+            logits = args.model(image.unsqueeze(dim=0).to(args.device))
             prediction = torch.argmax(logits, dim=-1)
         
             if not label == prediction.item():
@@ -144,13 +137,14 @@ class ADV_DATASET_(BASE_DATASET):
                 # print("Fail attack")
                 continue
             
-            logits = self.model(advs)
+            logits = args.model(advs)
             target_predictions = torch.argmax(logits, dim=-1)
             
             adv_dataset.append((advs.detach().cpu(), target_predictions.detach().cpu()))
             I += 1
 
-            if I == args.N:
+            # if I == args.N:
+            if I == 64:
                 break
             
         return adv_dataset
@@ -167,8 +161,12 @@ class ADV_DATASET(Dataset):
             
             for x_ in dataset.X:
                 self.X.append(x_[0])
+                if len(self.X) == args.N:
+                    break
             for y_ in dataset.y:
                 self.y.append(y_[0])
+                if len(self.y) == args.N:
+                    break
                 
             # self.X = self.X + dataset.X
             # self.y = self.y + dataset.y
@@ -183,6 +181,77 @@ class ADV_DATASET(Dataset):
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
         
+        
+class L_DATASET_(BASE_DATASET):
+    def generate(self):
+        I = 0
+        adv_dataset = []
+        
+        while True:
+            idx1 = torch.randint(0, len(args.test_dataset), (1,)).item()
+            idx2 = torch.randint(0, len(args.test_dataset), (1,)).item()
+
+            if idx1 == idx2:
+                continue
+            
+            image1, label1 = args.test_dataset[idx1]
+            image2, label2 = args.test_dataset[idx2]
+            
+            if label1 == label2:
+                continue
+            
+            image1 = image1.repeat(args.batch, 1, 1, 1)
+            image2 = image2.repeat(args.batch, 1, 1, 1)
+            
+            lambda_ = torch.rand(args.batch, 1, 1, 1)
+            # lambda_ = 0.5
+            images = (1 - lambda_) * image1 + lambda_ * image2
+            images = images.to(args.device)
+            
+            logits = args.model(images)
+            target_predictions = torch.argmax(logits, dim=-1)
+            
+            images, target_predictions = images.detach().cpu(), target_predictions.detach().cpu()
+            f = (target_predictions != label1) * (target_predictions != label2)
+            
+            if f.float().sum():
+                images, target_predictions = images[f], target_predictions[f]
+                adv_dataset.append((images[:1], target_predictions[:1]))
+                I += 1
+            
+            if I == 64:
+                break
+            
+        return adv_dataset
+
+
+class L_DATASET(Dataset):
+    def __init__(self, args):
+        self.X = []
+        self.y = []
+            
+        t = 0
+        while len(self.y) < args.N:
+            dataset = L_DATASET_(args)
+            
+            for x_ in dataset.X:
+                self.X.append(x_[0])
+                if len(self.X) == args.N:
+                    break
+            for y_ in dataset.y:
+                self.y.append(y_[0])
+                if len(self.y) == args.N:
+                    break
+            
+            t += 1
+            
+        print("ReSample times:", t)
+        
+    def __len__(self):
+        return len(self.y)
+        
+    def __getitem__(self, idx):
+        return self.X[idx], self.y[idx]
         
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -200,18 +269,29 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
-    adv_dataset = ADV_DATASET(args)
+    args.train_dataset = get_dataset(args.dataset, 'train')
+    args.test_dataset = get_dataset(args.dataset, 'test')
+    args.num_classes = get_num_classes(args.dataset)
+    args.bounds = get_bounds(args.dataset)
+    
+    model = _models[args.model_name]()
+    model.load_state_dict(torch.load(args.model_path, map_location='cpu')['model'])
+    model.to(args.device)
+    model.eval()
+    
+    args.model = model
+    
+    adv_dataset = L_DATASET(args)
+    print(len(adv_dataset))
     
     ### Evaluate accuracy on stolen models ###
     
-    # path_models = glob.glob('./models/resnet50_torchvision' + '/*')
     path_models = glob.glob('./models/resnet34' + '/*')
     
     adv_loader = DataLoader(adv_dataset, shuffle=False, batch_size=256)
     I_mean = []
     for model_path in path_models:
-        # new_model = _models['resnet50'](num_classes=num_classes)
-        new_model = resnet34()
+        new_model = _models['resnet34']()
         
         new_model.load_state_dict(torch.load(model_path, map_location=args.device))
         new_model.to(args.device)
