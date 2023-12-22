@@ -37,11 +37,10 @@ class BASE_DATASET(Dataset):
         flatten_dict = flatten_params(args.model.parameters())
         init_params, init_indices = flatten_dict['params'], flatten_dict['indices']    
 
-        FLAGS = []
         model_copy = copy.deepcopy(args.model)
         model_copy.to(args.device)
         
-        for i in range(args.M):    
+        for i in range(args.M):  
             delta = args.sigma * torch.randn_like(init_params)
             new_params = init_params + delta
             new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
@@ -64,36 +63,29 @@ class BASE_DATASET(Dataset):
             #     acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
             #     print(abs(acc_model_copy - acc_model))
             
-            FLAGS_ = []
+            update_adv_dataset = []
             for advs, labels in adv_dataset:
                 advs, labels = advs.to(args.device), labels.to(args.device)
                 
                 logits = model_copy(advs)
                 predictions = torch.argmax(logits, dim=-1)
                 
-                FLAGS_.append((predictions == labels).detach().cpu())
-                
-            FLAGS.append(torch.stack(FLAGS_))
+                f = (predictions == labels).detach().cpu()
+                if f.float().sum():
+                    update_adv_dataset.append((advs[f], labels[f]))
+                    
+            adv_dataset = update_adv_dataset
             
-        FLAGS = torch.stack(FLAGS)
-        FLAGS = FLAGS.permute((1, 0, 2))
-        
-        
-        ### Reject sampling. Reject non-common adversarial examples ###
         
         final_size = 0
-        new_adv_dataset = []
-        for i, (advs, labels) in enumerate(adv_dataset):
-            f = FLAGS[i]            
-            f = f.all(dim=0)
-            
-            final_size += f.float().sum()
-            if f.float().sum():
-                self.X.append(advs[f])
-                self.y.append(labels[f])
                 
-        print(final_size)
-        print(len(self.y))
+        for i, (advs, labels) in enumerate(adv_dataset):
+            final_size += labels.shape[0]
+            self.X.append(advs.detach().cpu())
+            self.y.append(labels.detach().cpu())
+
+        print("final size", final_size)
+        print("len dataset", len(self.y))
         
                 
     def __len__(self):
@@ -204,7 +196,6 @@ class L_DATASET_(BASE_DATASET):
             image2 = image2.repeat(args.batch, 1, 1, 1)
             
             lambda_ = torch.rand(args.batch, 1, 1, 1)
-            # lambda_ = 0.5
             images = (1 - lambda_) * image1 + lambda_ * image2
             images = images.to(args.device)
             
@@ -216,7 +207,7 @@ class L_DATASET_(BASE_DATASET):
             
             if f.float().sum():
                 images, target_predictions = images[f], target_predictions[f]
-                adv_dataset.append((images[:1], target_predictions[:1]))
+                adv_dataset.append((images, target_predictions))
                 I += 1
             
             if I == 64:
