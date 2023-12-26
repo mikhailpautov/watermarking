@@ -23,7 +23,7 @@ IMAGENET_LOC_ENV = "IMAGENET_DIR"
 os.environ[IMAGENET_LOC_ENV] = '/workspace/raid/data/datasets/imagenet/'
 
 # list of all datasets
-DATASETS = ["imagenet", "cifar10", "mnist"]
+DATASETS = ["imagenet", "cifar10", "cifar100", "mnist"]
 
 
 def get_dataset(dataset: str, split: str) -> Dataset:
@@ -32,6 +32,8 @@ def get_dataset(dataset: str, split: str) -> Dataset:
         return _imagenet(split)
     elif dataset == "cifar10":
         return _cifar10(split)
+    elif dataset == "cifar100":
+        return _cifar100(split)
     elif dataset == "mnist":
         return _mnist(split)
     elif dataset == "fashionmnist":
@@ -46,6 +48,8 @@ def get_num_classes(dataset: str):
         return 1000
     elif dataset == "cifar10":
         return 10
+    elif dataset == "cifar100":
+        return 100
     elif dataset == "mnist":
         return 10
     else:
@@ -58,6 +62,8 @@ def get_dataset_shape(dataset: str):
         return (3, 224, 224)
     elif dataset == "cifar10":
         return (3, 32, 32)
+    elif dataset == "cifar100":
+        return (3, 32, 32)
     elif dataset == "mnist":
         return (1, 28, 28)
     else:
@@ -69,6 +75,8 @@ def get_normalize_layer(dataset: str, device=None) -> torch.nn.Module:
         return NormalizeLayer(_IMAGENET_MEAN, _IMAGENET_STDDEV, device)
     elif dataset == "cifar10":
         return NormalizeLayer(_CIFAR10_MEAN, _CIFAR10_STDDEV, device)
+    elif dataset == "cifar100":
+        return NormalizeLayer(_CIFAR100_MEAN, _CIFAR100_STDDEV, device)
     elif dataset == "mnist":
         return NormalizeLayer(_MNIST_MEAN, _MNIST_STDDEV, device)
     else:
@@ -80,6 +88,9 @@ _IMAGENET_STDDEV = [0.229, 0.224, 0.225]
 
 _CIFAR10_MEAN = [0.4914, 0.4822, 0.4465]
 _CIFAR10_STDDEV = [0.2023, 0.1994, 0.2010]
+
+_CIFAR100_MEAN = [0.5071, 0.4867, 0.4408]
+_CIFAR100_STDDEV = [0.2675, 0.2565, 0.2761]
 
 _MNIST_MEAN = [0.5]
 _MNIST_STDDEV = [0.5]
@@ -102,7 +113,22 @@ def _cifar10(split: str) -> Dataset:
             transforms.ToTensor(),
             transforms.Normalize(mean=_CIFAR10_MEAN, std=_CIFAR10_STDDEV)
         ]))
-
+    
+def _cifar100(split: str) -> Dataset:
+    if split == "train":
+        return datasets.CIFAR100("./dataset_cache", train=True, download=True, transform=transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_CIFAR100_MEAN, std=_CIFAR100_STDDEV)
+        ]))
+    elif split == "test":
+        return datasets.CIFAR100("./dataset_cache", train=False, download=True, transform=transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_CIFAR100_MEAN, std=_CIFAR100_STDDEV)
+        ]))
+    
 
 def _imagenet(split: str) -> Dataset:
     if not IMAGENET_LOC_ENV in os.environ:
@@ -157,6 +183,8 @@ def get_bounds(dataset):
         dataset_mean, dataset_std = _IMAGENET_MEAN, _IMAGENET_STDDEV
     elif dataset == "cifar10":
         dataset_mean, dataset_std = _CIFAR10_MEAN, _CIFAR10_STDDEV
+    elif dataset == "cifar100":
+        dataset_mean, dataset_std = _CIFAR100_MEAN, _CIFAR100_STDDEV
     elif dataset == "mnist":
         dataset_mean, dataset_std = _MNIST_MEAN, _MNIST_STDDEV
     else:
