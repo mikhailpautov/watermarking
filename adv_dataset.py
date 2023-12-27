@@ -16,6 +16,8 @@ import foolbox as fb
 import matplotlib.pyplot as plt
 
 import glob
+import time
+from tqdm import tqdm
 
 from models import resnet18, resnet34, resnet50
 
@@ -24,6 +26,9 @@ class BASE_DATASET(Dataset):
         
         self.X = []
         self.y = []
+        
+        self.models_batch = 10
+        self.args = args
         
         # size_ = 512
         # test_dataset_,  _= torch.utils.data.random_split(args.test_dataset, [size_, len(args.test_dataset) - size_])
@@ -40,7 +45,7 @@ class BASE_DATASET(Dataset):
         model_copy = copy.deepcopy(args.model)
         model_copy.to(args.device)
         
-        for i in range(args.M):  
+        for i in tqdm(range(args.M)):  
             delta = args.sigma * torch.randn_like(init_params)
             new_params = init_params + delta
             new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
@@ -51,7 +56,7 @@ class BASE_DATASET(Dataset):
             model_copy.eval()
             # acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
             
-            # while abs(acc_model_copy - acc_model) > 0.05:
+            # while abs(acc_model_copy - acc_model) > 0.1:
             #     delta = args.sigma * torch.randn_like(init_params)
             #     new_params = init_params + delta
             #     new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
@@ -100,6 +105,7 @@ class BASE_DATASET(Dataset):
 
 class ADV_DATASET_(BASE_DATASET):
     def generate(self):
+        args = self.args
         fmodel = fb.PyTorchModel(args.model, bounds=args.bounds, device=args.device)
         attack = fb.attacks.LinfFastGradientAttack(random_start=True)
         
@@ -135,47 +141,15 @@ class ADV_DATASET_(BASE_DATASET):
             adv_dataset.append((advs.detach().cpu(), target_predictions.detach().cpu()))
             I += 1
 
-            # if I == args.N:
-            if I == 64:
+            if I == self.models_batch:
                 break
             
         return adv_dataset
-    
-    
-class ADV_DATASET(Dataset):
-    def __init__(self, args):
-        self.X = []
-        self.y = []
-        
-        t = 0
-        while len(self.y) < args.N:
-            dataset = ADV_DATASET_(args)
-            
-            for x_ in dataset.X:
-                self.X.append(x_[0])
-                if len(self.X) == args.N:
-                    break
-            for y_ in dataset.y:
-                self.y.append(y_[0])
-                if len(self.y) == args.N:
-                    break
-                
-            # self.X = self.X + dataset.X
-            # self.y = self.y + dataset.y
-            
-            t += 1
-            
-        print("ReSample times:", t)
-        
-    def __len__(self):
-        return len(self.y)
-        
-    def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
         
         
 class L_DATASET_(BASE_DATASET):
     def generate(self):
+        args = self.args
         I = 0
         adv_dataset = []
         
@@ -210,20 +184,24 @@ class L_DATASET_(BASE_DATASET):
                 adv_dataset.append((images, target_predictions))
                 I += 1
             
-            if I == 64:
+            if I == self.models_batch:
                 break
             
         return adv_dataset
 
 
-class L_DATASET(Dataset):
-    def __init__(self, args):
+class FINAL_DATASET(Dataset):
+    def __init__(self, args, class_dataset):
         self.X = []
         self.y = []
-            
+        
+        times = []
         t = 0
         while len(self.y) < args.N:
-            dataset = L_DATASET_(args)
+            start = time.time()
+            dataset = class_dataset(args)
+            end = time.time()
+            times.append(end - start)
             
             for x_ in dataset.X:
                 self.X.append(x_[0])
@@ -237,13 +215,16 @@ class L_DATASET(Dataset):
             t += 1
             
         print("ReSample times:", t)
+        print("Average time:", sum(times) / len(times))
         
     def __len__(self):
         return len(self.y)
         
     def __getitem__(self, idx):
         return self.X[idx], self.y[idx]
-        
+    
+    
+      
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
@@ -253,9 +234,9 @@ if __name__ == '__main__':
     parser.add_argument('--seed', help="seed", type=int, default=5)
     parser.add_argument('--model_name', help = "target model architecture", choices=list(_models.keys()), default='resnet34')
     parser.add_argument('--model_path', help="path to saved model", type=str, default='./model_0.pt')
-    parser.add_argument('--N', help="size of trigger set", type=int, default=32)
+    parser.add_argument('--N', help="size of trigger set", type=int, default=100)
     
-    parser.add_argument('--sigma', help="sigma", type=float, default=1e-4)
+    parser.add_argument('--sigma', help="sigma", type=float, default=1e-3)
     parser.add_argument('--M', help="Number of proxy models", type=int, default=32)
     
     args = parser.parse_args()
@@ -272,17 +253,17 @@ if __name__ == '__main__':
     
     args.model = model
     
-    adv_dataset = L_DATASET(args)
+    adv_dataset = FINAL_DATASET(args, L_DATASET_)
     print(len(adv_dataset))
     
     ### Evaluate accuracy on stolen models ###
-    
-    path_models = glob.glob('./models/resnet34' + '/*')
+    print("Start evaluate stolen models")
+    path_models = glob.glob('./models/resnet18' + '/*')
     
     adv_loader = DataLoader(adv_dataset, shuffle=False, batch_size=256)
     I_mean = []
     for model_path in path_models:
-        new_model = _models['resnet34']()
+        new_model = _models['resnet18']()
         
         new_model.load_state_dict(torch.load(model_path, map_location=args.device))
         new_model.to(args.device)
@@ -293,6 +274,43 @@ if __name__ == '__main__':
         for advs, labels in adv_loader:
             advs = advs.to(args.device)
             logits = new_model(advs)
+            predictions = torch.argmax(logits, dim=-1)
+            predictions = predictions.cpu()
+            
+            I_.append(predictions == labels)
+            
+        I_ = torch.cat(I_)
+        I_mean.append(I_.float().mean())
+        print("Accuracy ", I_.float().mean().item())
+        
+    I_mean = torch.tensor(I_mean)
+    print("Mean acc ", I_mean.mean())
+    
+
+    ### Evaluate accuracy on proxy models ###
+    print("Start evaluate proxy models")
+    flatten_dict = flatten_params(args.model.parameters())
+    init_params, init_indices = flatten_dict['params'], flatten_dict['indices']    
+
+    model_copy = copy.deepcopy(args.model)
+    model_copy.to(args.device)
+    
+    I_mean = []
+    for i in range(len(path_models)):  
+        delta = args.sigma * torch.randn_like(init_params)
+        new_params = init_params + delta
+        new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
+        
+        for i, params in enumerate(model_copy.parameters()):
+            params.data = new_params_unfl[i].data
+        
+        model_copy.eval()
+        
+        I_ = []
+        
+        for advs, labels in adv_loader:
+            advs = advs.to(args.device)
+            logits = model_copy(advs)
             predictions = torch.argmax(logits, dim=-1)
             predictions = predictions.cpu()
             
