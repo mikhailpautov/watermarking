@@ -23,7 +23,7 @@ IMAGENET_LOC_ENV = "IMAGENET_DIR"
 os.environ[IMAGENET_LOC_ENV] = '/workspace/raid/data/datasets/imagenet/'
 
 # list of all datasets
-DATASETS = ["imagenet", "cifar10", "cifar100", "mnist"]
+DATASETS = ["imagenet", "cifar10", "cifar100", "mnist", "svhn"]
 
 
 def get_dataset(dataset: str, split: str) -> Dataset:
@@ -38,6 +38,8 @@ def get_dataset(dataset: str, split: str) -> Dataset:
         return _mnist(split)
     elif dataset == "fashionmnist":
         return _fashion_mnist(split)
+    elif dataset == "svhn":
+        return _svhn(split)
     else:
         raise Exception("Unknown dataset")
 
@@ -51,6 +53,8 @@ def get_num_classes(dataset: str):
     elif dataset == "cifar100":
         return 100
     elif dataset == "mnist":
+        return 10
+    elif dataset == "svhn":
         return 10
     else:
         raise Exception("Unknown dataset")
@@ -66,21 +70,23 @@ def get_dataset_shape(dataset: str):
         return (3, 32, 32)
     elif dataset == "mnist":
         return (1, 28, 28)
+    elif dataset == "svhn":
+        return (3, 32, 32)
     else:
         raise Exception("Unknown dataset")
 
-def get_normalize_layer(dataset: str, device=None) -> torch.nn.Module:
-    """Return the dataset's normalization layer"""
-    if dataset == "imagenet":
-        return NormalizeLayer(_IMAGENET_MEAN, _IMAGENET_STDDEV, device)
-    elif dataset == "cifar10":
-        return NormalizeLayer(_CIFAR10_MEAN, _CIFAR10_STDDEV, device)
-    elif dataset == "cifar100":
-        return NormalizeLayer(_CIFAR100_MEAN, _CIFAR100_STDDEV, device)
-    elif dataset == "mnist":
-        return NormalizeLayer(_MNIST_MEAN, _MNIST_STDDEV, device)
-    else:
-        raise Exception("Unknown dataset")
+# def get_normalize_layer(dataset: str, device=None) -> torch.nn.Module:
+#     """Return the dataset's normalization layer"""
+#     if dataset == "imagenet":
+#         return NormalizeLayer(_IMAGENET_MEAN, _IMAGENET_STDDEV, device)
+#     elif dataset == "cifar10":
+#         return NormalizeLayer(_CIFAR10_MEAN, _CIFAR10_STDDEV, device)
+#     elif dataset == "cifar100":
+#         return NormalizeLayer(_CIFAR100_MEAN, _CIFAR100_STDDEV, device)
+#     elif dataset == "mnist":
+#         return NormalizeLayer(_MNIST_MEAN, _MNIST_STDDEV, device)
+#     else:
+#         raise Exception("Unknown dataset")
 
 
 _IMAGENET_MEAN = [0.485, 0.456, 0.406]
@@ -94,6 +100,9 @@ _CIFAR100_STDDEV = [0.2675, 0.2565, 0.2761]
 
 _MNIST_MEAN = [0.5]
 _MNIST_STDDEV = [0.5]
+
+_SVHN_MEAN = [0.4377, 0.4438, 0.4728]
+_SVHN_STDDEV = [0.1201, 0.1231, 0.1052]
 
 _DEFAULT_MEAN = [0.5, 0.5, 0.5]
 _DEFAULT_STDDEV = [0.5, 0.5, 0.5]
@@ -113,6 +122,7 @@ def _cifar10(split: str) -> Dataset:
             transforms.ToTensor(),
             transforms.Normalize(mean=_CIFAR10_MEAN, std=_CIFAR10_STDDEV)
         ]))
+
     
 def _cifar100(split: str) -> Dataset:
     if split == "train":
@@ -178,6 +188,22 @@ def _fashion_mnist(split: str) -> Dataset:
         return datasets.FashionMNIST("./dataset_cache", train=False, download=True, transform=transforms.ToTensor())
 
 
+def _svhn(split: str) -> Dataset:
+    if split == "train":
+        return datasets.SVHN('./dataset_cache', split=split, download=True, transform=transforms.Compose([
+            transforms.RandomCrop(32, padding=4),
+            transforms.RandomHorizontalFlip(),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_SVHN_MEAN, std=_SVHN_STDDEV)
+        ]))
+    elif split == "test":
+        return datasets.SVHN("./dataset_cache", split=split, download=True, transform=transforms.Compose([
+            transforms.Resize(32),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=_SVHN_MEAN, std=_SVHN_STDDEV)
+        ]))
+        
+
 def get_bounds(dataset):
     if dataset == "imagenet":
         dataset_mean, dataset_std = _IMAGENET_MEAN, _IMAGENET_STDDEV
@@ -201,31 +227,31 @@ def get_bounds(dataset):
     return (l, r)
 
 
-class NormalizeLayer(torch.nn.Module):
-    """Standardize the channels of a batch of images by subtracting the dataset mean
-      and dividing by the dataset standard deviation.
+# class NormalizeLayer(torch.nn.Module):
+#     """Standardize the channels of a batch of images by subtracting the dataset mean
+#       and dividing by the dataset standard deviation.
 
-      In order to certify radii in original coordinates rather than standardized coordinates, we
-      add the Gaussian noise _before_ standardizing, which is why we have standardization be the first
-      layer of the classifier rather than as a part of preprocessing as is typical.
-      """
+#       In order to certify radii in original coordinates rather than standardized coordinates, we
+#       add the Gaussian noise _before_ standardizing, which is why we have standardization be the first
+#       layer of the classifier rather than as a part of preprocessing as is typical.
+#       """
 
-    def __init__(self, means: List[float], sds: List[float], device):
-        """
-        :param means: the channel means
-        :param sds: the channel standard deviations
-        """
-        super(NormalizeLayer, self).__init__()
-#         self.means = torch.tensor(means).cuda()
-#         self.sds = torch.tensor(sds).cuda()
+#     def __init__(self, means: List[float], sds: List[float], device):
+#         """
+#         :param means: the channel means
+#         :param sds: the channel standard deviations
+#         """
+#         super(NormalizeLayer, self).__init__()
+# #         self.means = torch.tensor(means).cuda()
+# #         self.sds = torch.tensor(sds).cuda()
 
-        self.means = torch.tensor(means).to(device)
-        self.sds = torch.tensor(sds).to(device)
-        self.device = device
+#         self.means = torch.tensor(means).to(device)
+#         self.sds = torch.tensor(sds).to(device)
+#         self.device = device
 
 
-    def forward(self, input: torch.tensor):
-        (batch_size, num_channels, height, width) = input.shape
-        means = self.means.repeat((batch_size, height, width, 1)).permute(0, 3, 1, 2).contiguous()
-        sds = self.sds.repeat((batch_size, height, width, 1)).permute(0, 3, 1, 2).contiguous()
-        return (input - means) / sds
+#     def forward(self, input: torch.tensor):
+#         (batch_size, num_channels, height, width) = input.shape
+#         means = self.means.repeat((batch_size, height, width, 1)).permute(0, 3, 1, 2).contiguous()
+#         sds = self.sds.repeat((batch_size, height, width, 1)).permute(0, 3, 1, 2).contiguous()
+#         return (input - means) / sds

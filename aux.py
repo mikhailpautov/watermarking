@@ -2,7 +2,7 @@ import torch
 import os
 import sys
 
-from datasets import get_dataset, DATASETS, get_normalize_layer
+from datasets import get_dataset, DATASETS #get_normalize_layer
 from time import time
 from tqdm import tqdm
 from torch.optim import SGD, Adam
