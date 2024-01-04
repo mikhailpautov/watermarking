@@ -1,5 +1,5 @@
 from torch.optim import SGD, Adam
-# from torchvision.models import resnet18, resnet34
+from torchvision.models import vgg11
 from models import resnet18, resnet34, resnet50
 
 _optimizers = {
@@ -10,4 +10,6 @@ _optimizers = {
 _models = {
     'resnet18': resnet18,
     'resnet34': resnet34,
-    'resnet50': resnet50}
+    'resnet50': resnet50,
+    'vgg11': vgg11
+    }
