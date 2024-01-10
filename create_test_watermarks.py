@@ -60,7 +60,8 @@ if __name__ == '__main__':
         
         I_ = []
         
-        for advs, labels in adv_loader:
+        for data in adv_loader:
+            advs, labels = data[0], data[1]
             advs = advs.to(args.device)
             logits = new_model(advs)
             predictions = torch.argmax(logits, dim=-1)
@@ -97,7 +98,8 @@ if __name__ == '__main__':
         
         I_ = []
         
-        for advs, labels in adv_loader:
+        for data in adv_loader:
+            advs, labels = data[0], data[1]
             advs = advs.to(args.device)
             logits = model_copy(advs)
             predictions = torch.argmax(logits, dim=-1)

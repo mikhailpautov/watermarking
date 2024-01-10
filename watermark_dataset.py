@@ -4,10 +4,11 @@ import copy
 
 import torchvision.transforms as transforms
 
+from torch.distributions import Beta
 from torch.utils.data import DataLoader, Dataset
 from torch.nn import CrossEntropyLoss
 from global_options import _models, _optimizers
-from aux import flatten_params, recover_flattened #train, accuracy,
+from aux import flatten_params, recover_flattened
 from utils import evaluate_model
 
 # import foolbox as fb
@@ -16,11 +17,18 @@ import matplotlib.pyplot as plt
 import time
 from tqdm import tqdm
 
+
+def reject_data(data, f):
+    return tuple(data[i][f] for i in range(len(data)))
+        
+def data_to_device(data, device='cpu'):
+    return tuple(data[i].detach().to(device) for i in range(len(data)))
+        
+    
 class BASE_DATASET(Dataset):
     def __init__(self, args):
         
-        self.X = []
-        self.y = []
+        self.data = []
         
         self.N_base = 32 # Number of watermark images before rejection
         self.args = args
@@ -69,7 +77,8 @@ class BASE_DATASET(Dataset):
                     print("Accuracy gap:", abs(acc_model_copy - acc_model))
             
             update_adv_dataset = []
-            for advs, labels in adv_dataset:
+            for data in adv_dataset:
+                advs, labels = data[0], data[1]
                 advs, labels = advs.to(args.device), labels.to(args.device)
                 
                 logits = model_copy(advs)
@@ -77,28 +86,23 @@ class BASE_DATASET(Dataset):
                 
                 f = (predictions == labels).detach().cpu()
                 if f.float().sum():
-                    update_adv_dataset.append((advs[f], labels[f]))
+                    update_adv_dataset.append(reject_data(data, f))
                     
             adv_dataset = update_adv_dataset
             
-
-        final_size = 0
                 
-        for i, (advs, labels) in enumerate(adv_dataset):
-            final_size += labels.shape[0]
-            self.X.append(advs.detach().cpu())
-            self.y.append(labels.detach().cpu())
+        for data in adv_dataset:
+            self.data.append(data_to_device(data))
 
-        # print("final size", final_size)
-        print("len dataset", len(self.y))
-        print("reject coefficient", len(self.y) / self.N_base)
+        print("len dataset", len(self.data))
+        print("reject coefficient", len(self.data) / self.N_base)
         
                 
     def __len__(self):
-        return len(self.y)
+        return len(self.data)
         
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        return self.data[idx]
         
     def generate(self):
         raise NotImplementedError("Please Implement this method")
@@ -175,14 +179,28 @@ class L_DATASET_(BASE_DATASET):
             if label1 == label2:
                 continue
             
+            logits1 = args.model(image1.unsqueeze(dim=0).to(args.device)).detach()
+            logits2 = args.model(image2.unsqueeze(dim=0).to(args.device)).detach()
+            predictions1 = torch.argmax(logits1, dim=-1)
+            predictions2 = torch.argmax(logits2, dim=-1)
+            
+            if (predictions1 != label1) or (predictions2 != label2):
+                continue
+            
             image1 = image1.repeat(args.batch, 1, 1, 1)
             image2 = image2.repeat(args.batch, 1, 1, 1)
             
-            lambda_ = torch.rand(args.batch, 1, 1, 1)
+            # lambda_ = torch.rand(args.batch, 1, 1, 1)
+            alpha = 0.5
+            m = Beta(alpha, alpha)
+            lambda_ = m.sample((args.batch, 1, 1, 1))
+            
             images = (1 - lambda_) * image1 + lambda_ * image2
             images = images.to(args.device)
+            lambda_ = lambda_.squeeze()
             
-            logits = args.model(images)
+            logits = args.model(images).detach()
+
             target_predictions = torch.argmax(logits, dim=-1)
             
             images, target_predictions = images.detach().cpu(), target_predictions.detach().cpu()
@@ -190,12 +208,16 @@ class L_DATASET_(BASE_DATASET):
             
             if f.float().sum():
                 images, target_predictions = images[f], target_predictions[f]
-                adv_dataset.append((images, target_predictions))
+                lambda_ = lambda_[f]
+
+                adv_dataset.append((images, target_predictions, lambda_))
                 I += 1
                 self.idxs.append(idx1)
                 self.idxs.append(idx2)
+
+                # print(label1, label2)
+                # print(torch.unique(target_predictions, return_counts=True))
                 
-            
             if I == self.N_base:
                 break
             
@@ -204,13 +226,12 @@ class L_DATASET_(BASE_DATASET):
 
 class FINAL_DATASET(Dataset):
     def __init__(self, args):
-        self.X = []
-        self.y = []
+        self.data = []
         
         times = []
         t = 0
         idxs = []
-        while len(self.y) < args.N:
+        while len(self.data) < args.N:
             start = time.time()
             dataset = L_DATASET_(args, idxs)
             idxs = dataset.idxs
@@ -218,13 +239,15 @@ class FINAL_DATASET(Dataset):
             times.append(end - start)
             
             # TODO add another selection criterion
-            for x_ in dataset.X:
-                self.X.append(x_[0])
-                if len(self.X) == args.N:
-                    break
-            for y_ in dataset.y:
-                self.y.append(y_[0])
-                if len(self.y) == args.N:
+            for data in dataset:
+                # self.data.append(tuple(data[i][0] for i in range(len(data))))
+                
+                lambda_ = data[2]
+                lambda_ = torch.abs(lambda_ - 0.5)
+                idx = torch.argmax(lambda_)
+                self.data.append(tuple(data[i][idx] for i in range(len(data))))
+                               
+                if len(self.data) == args.N:
                     break
             
             t += 1
@@ -233,7 +256,7 @@ class FINAL_DATASET(Dataset):
         print("Average time:", sum(times) / len(times))
         
     def __len__(self):
-        return len(self.y)
+        return len(self.data)
         
     def __getitem__(self, idx):
-        return self.X[idx], self.y[idx]
+        return self.data[idx]
