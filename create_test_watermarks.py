@@ -30,6 +30,9 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
     
+    torch.manual_seed(args.seed)
+    torch.cuda.manual_seed(args.seed)
+    
     if args.use_train:
         args.train_dataset = get_dataset(args.dataset, 'train')
     args.test_dataset = get_dataset(args.dataset, 'test')

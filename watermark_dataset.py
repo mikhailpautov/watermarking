@@ -169,8 +169,7 @@ class L_DATASET_(BASE_DATASET):
             if idx1 == idx2:
                 continue
             
-            if (idx1 in self.idxs) or (idx2 in self.idxs):
-                # print("wau")
+            if (idx1 in self.idxs) and (idx2 in self.idxs):
                 continue
             
             image1, label1 = base_dataset[idx1]
@@ -191,7 +190,7 @@ class L_DATASET_(BASE_DATASET):
             image2 = image2.repeat(args.batch, 1, 1, 1)
             
             # lambda_ = torch.rand(args.batch, 1, 1, 1)
-            alpha = 0.5
+            alpha = 0.1
             m = Beta(alpha, alpha)
             lambda_ = m.sample((args.batch, 1, 1, 1))
             
@@ -249,7 +248,7 @@ class FINAL_DATASET(Dataset):
                                
                 if len(self.data) == args.N:
                     break
-            
+            print("Elements in trigerset:", len(self.data))  
             t += 1
             
         print("ReSample times:", t)
