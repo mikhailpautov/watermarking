@@ -30,7 +30,7 @@ class BASE_DATASET(Dataset):
         
         self.data = []
         
-        self.N_base = 32 # Number of watermark images before rejection
+        self.N_base = 128 # Number of watermark images before rejection
         self.args = args
         
         if args.threshold is not None:
@@ -49,47 +49,73 @@ class BASE_DATASET(Dataset):
         init_params, init_indices = flatten_dict['params'], flatten_dict['indices']    
 
         model_copy = copy.deepcopy(args.model)
+        model_copy.eval()
         model_copy.to(args.device)
         
+        sigma1 = 6e-3
+        sigma2 = 8e-3
+        
         for i in tqdm(range(args.M)):  
-            delta = args.sigma * torch.randn_like(init_params)
-            new_params = init_params + delta
-            new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
-            
-            for i, params in enumerate(model_copy.parameters()):
-                params.data = new_params_unfl[i].data
-            
-            model_copy.eval()
-            
-            if args.threshold is not None:
-                acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
+            if args.sigma1 is not None:
+                delta = args.sigma1 * torch.randn_like(init_params)
+                new_params = init_params + delta
+                new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
+                # print(torch.norm(delta, p=2), torch.norm(init_params, p=2))
+                # print(torch.norm(delta, p=2) / torch.norm(init_params, p=2))
+                # print(torch.norm(new_params, p=2))
+                for i, params in enumerate(model_copy.parameters()):
+                    params.data = new_params_unfl[i].data
                 
-                while abs(acc_model_copy - acc_model) > args.threshold:
-                    delta = args.sigma * torch.randn_like(init_params)
-                    new_params = init_params + delta
-                    new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
-                    
-                    for i, params in enumerate(model_copy.parameters()):
-                        params.data = new_params_unfl[i].data
-                    
-                    model_copy.eval()
+                if args.threshold is not None:
                     acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
-                    print("Accuracy gap:", abs(acc_model_copy - acc_model))
-            
-            update_adv_dataset = []
-            for data in adv_dataset:
-                advs, labels = data[0], data[1]
-                advs, labels = advs.to(args.device), labels.to(args.device)
-                
-                logits = model_copy(advs)
-                predictions = torch.argmax(logits, dim=-1)
-                
-                f = (predictions == labels).detach().cpu()
-                if f.float().sum():
-                    update_adv_dataset.append(reject_data(data, f))
                     
-            adv_dataset = update_adv_dataset
+                    while abs(acc_model_copy - acc_model) > args.threshold:
+                        delta = args.sigma * torch.randn_like(init_params)
+                        new_params = init_params + delta
+                        new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
+                        
+                        for i, params in enumerate(model_copy.parameters()):
+                            params.data = new_params_unfl[i].data
+                        
+                        acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
+                        print("Accuracy gap:", abs(acc_model_copy - acc_model))
+                
+                update_adv_dataset = []
+                for data in adv_dataset:
+                    advs, labels = data[0], data[1]
+                    advs, labels = advs.to(args.device), labels.to(args.device)
+                    
+                    with torch.no_grad():
+                        logits = model_copy(advs)
+                    predictions = torch.argmax(logits, dim=-1)
+                    
+                    f = (predictions == labels).detach().cpu()
+                    if f.float().sum():
+                        update_adv_dataset.append(reject_data(data, f))
+                        
+                adv_dataset = update_adv_dataset
+                
+                delta = sigma2 * torch.randn_like(init_params)
+                new_params = init_params + delta
+                new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
+                for i, params in enumerate(model_copy.parameters()):
+                    params.data = new_params_unfl[i].data
             
+            if args.sigma2 is not None:
+                update_adv_dataset = []
+                for data in adv_dataset:
+                    advs, labels = data[0], data[1]
+                    advs, labels = advs.to(args.device), labels.to(args.device)
+                    
+                    with torch.no_grad():
+                        logits = model_copy(advs)
+                    predictions = torch.argmax(logits, dim=-1)
+                    
+                    f = (predictions != labels).detach().cpu()
+                    if f.float().sum():
+                        update_adv_dataset.append(reject_data(data, f))
+                        
+                adv_dataset = update_adv_dataset
                 
         for data in adv_dataset:
             self.data.append(data_to_device(data))
@@ -139,7 +165,8 @@ class ADV_DATASET_(BASE_DATASET):
                 # print("Fail attack")
                 continue
             
-            logits = args.model(advs)
+            with torch.no_grad():
+                logits = args.model(advs)
             target_predictions = torch.argmax(logits, dim=-1)
             
             adv_dataset.append((advs.detach().cpu(), target_predictions.detach().cpu()))
@@ -178,10 +205,11 @@ class L_DATASET_(BASE_DATASET):
             if label1 == label2:
                 continue
             
-            logits1 = args.model(image1.unsqueeze(dim=0).to(args.device)).detach()
-            logits2 = args.model(image2.unsqueeze(dim=0).to(args.device)).detach()
-            predictions1 = torch.argmax(logits1, dim=-1)
-            predictions2 = torch.argmax(logits2, dim=-1)
+            with torch.no_grad():
+                logits1 = args.model(image1.unsqueeze(dim=0).to(args.device)).detach()
+                logits2 = args.model(image2.unsqueeze(dim=0).to(args.device)).detach()
+                predictions1 = torch.argmax(logits1, dim=-1)
+                predictions2 = torch.argmax(logits2, dim=-1)
             
             if (predictions1 != label1) or (predictions2 != label2):
                 continue
@@ -190,7 +218,7 @@ class L_DATASET_(BASE_DATASET):
             image2 = image2.repeat(args.batch, 1, 1, 1)
             
             # lambda_ = torch.rand(args.batch, 1, 1, 1)
-            alpha = 0.1
+            alpha = 0.4
             m = Beta(alpha, alpha)
             lambda_ = m.sample((args.batch, 1, 1, 1))
             
@@ -198,9 +226,9 @@ class L_DATASET_(BASE_DATASET):
             images = images.to(args.device)
             lambda_ = lambda_.squeeze()
             
-            logits = args.model(images).detach()
-
-            target_predictions = torch.argmax(logits, dim=-1)
+            with torch.no_grad():
+                logits = args.model(images).detach()
+                target_predictions = torch.argmax(logits, dim=-1)
             
             images, target_predictions = images.detach().cpu(), target_predictions.detach().cpu()
             f = (target_predictions != label1) * (target_predictions != label2)
@@ -245,7 +273,7 @@ class FINAL_DATASET(Dataset):
                 lambda_ = torch.abs(lambda_ - 0.5)
                 idx = torch.argmax(lambda_)
                 self.data.append(tuple(data[i][idx] for i in range(len(data))))
-                               
+                # print(data[1].shape)               
                 if len(self.data) == args.N:
                     break
             print("Elements in trigerset:", len(self.data))  
