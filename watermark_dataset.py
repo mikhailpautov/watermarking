@@ -11,7 +11,7 @@ from global_options import _models, _optimizers
 from aux import flatten_params, recover_flattened
 from utils import evaluate_model
 
-# import foolbox as fb
+import foolbox as fb
 import matplotlib.pyplot as plt
 
 import time
@@ -52,17 +52,12 @@ class BASE_DATASET(Dataset):
         model_copy.eval()
         model_copy.to(args.device)
         
-        sigma1 = 6e-3
-        sigma2 = 8e-3
-        
-        for i in tqdm(range(args.M)):  
+        for i in tqdm(range(args.M)):
             if args.sigma1 is not None:
                 delta = args.sigma1 * torch.randn_like(init_params)
                 new_params = init_params + delta
                 new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
-                # print(torch.norm(delta, p=2), torch.norm(init_params, p=2))
-                # print(torch.norm(delta, p=2) / torch.norm(init_params, p=2))
-                # print(torch.norm(new_params, p=2))
+
                 for i, params in enumerate(model_copy.parameters()):
                     params.data = new_params_unfl[i].data
                 
@@ -95,13 +90,14 @@ class BASE_DATASET(Dataset):
                         
                 adv_dataset = update_adv_dataset
                 
-                delta = sigma2 * torch.randn_like(init_params)
+            
+            if args.sigma2 is not None:
+                delta = args.sigma2 * torch.randn_like(init_params)
                 new_params = init_params + delta
                 new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
                 for i, params in enumerate(model_copy.parameters()):
                     params.data = new_params_unfl[i].data
-            
-            if args.sigma2 is not None:
+                    
                 update_adv_dataset = []
                 for data in adv_dataset:
                     advs, labels = data[0], data[1]
