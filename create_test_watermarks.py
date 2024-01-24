@@ -13,7 +13,7 @@ from utils import evaluate_model
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     
-    parser.add_argument('--dataset', help="dataset name", type=str, choices=['imagenet', 'cifar10', 'mnist'], default='cifar10')
+    parser.add_argument('--dataset', help="dataset name", type=str, choices=['imagenet', 'cifar10', 'cifar100', 'mnist', 'svhn'], default='cifar10')
     parser.add_argument('--batch', help="batch_size", type=int, default=64)
     parser.add_argument('--device', help="device", type=str, default='cuda:0')
     parser.add_argument('--seed', help="seed", type=int, default=0)
