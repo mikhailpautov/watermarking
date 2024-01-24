@@ -1,5 +1,5 @@
 # Watermarking
-(Robust) watermarking
+Probabilistically Robust Watermarking of Neural Networks
 
 ## Commands
 Create stealing models:
