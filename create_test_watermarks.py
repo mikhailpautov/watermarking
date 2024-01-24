@@ -19,8 +19,8 @@ if __name__ == '__main__':
     parser.add_argument('--seed', help="seed", type=int, default=0)
     parser.add_argument('--model_name', help = "target model architecture", choices=list(_models.keys()), default='resnet34')
     parser.add_argument('--model_path', help="path to saved model", type=str, default='./models/teacher_cifar10_resnet34/model_1')
-    parser.add_argument('--models_name', help = "stolen model architecture", choices=list(_models.keys()), default='resnet34')
-    parser.add_argument('--models_path', help="path to stolen models", type=str, default='./models/stealing_resnet34_cifar10_soft')
+    parser.add_argument('--student_name', help = "stolen model architecture", choices=list(_models.keys()), default='resnet34')
+    parser.add_argument('--student_path', help="path to stolen models", type=str, default='./models/stealing_resnet34_cifar10_soft')
     parser.add_argument('--N', help="size of trigger set", type=int, default=100)
     parser.add_argument('--sigma1', help="sigma in", type=float, default=None)
     parser.add_argument('--sigma2', help="sigma out", type=float, default=None)
@@ -51,9 +51,9 @@ if __name__ == '__main__':
     
     ### Evaluate accuracy on stolen models ###
     print("Start evaluate stolen models")
-    path_models = glob.glob(args.models_path + '/*')
+    path_models = glob.glob(args.student_path + '/*')
     
-    new_model = _models[args.models_name](num_classes=args.num_classes)
+    new_model = _models[args.student_name](num_classes=args.num_classes)
     
     I_mean = []
     for model_path in path_models:
