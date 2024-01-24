@@ -144,12 +144,13 @@ def flip_labels(dataset, part=0.1, indices=None):
 
 def evaluate_model(model, dataloader, device):
     model.eval()
+    model.to(device)
     correct = 0.0
     total = 0.0
 
     with torch.no_grad():
         for data in dataloader:
-            images, labels = data
+            images, labels = data[0], data[1]
             images, labels = images.to(device), labels.to(device)
             outputs = model(images)
             _, predicted = torch.max(outputs.data, 1)

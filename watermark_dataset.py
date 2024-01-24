@@ -1,20 +1,11 @@
 import torch
-import torchvision
 import copy
-
-import torchvision.transforms as transforms
+import time
 
 from torch.distributions import Beta
 from torch.utils.data import DataLoader, Dataset
-from torch.nn import CrossEntropyLoss
-from global_options import _models, _optimizers
 from aux import flatten_params, recover_flattened
 from utils import evaluate_model
-
-import foolbox as fb
-import matplotlib.pyplot as plt
-
-import time
 from tqdm import tqdm
 
 
@@ -36,7 +27,6 @@ class BASE_DATASET(Dataset):
         if args.threshold is not None:
             size_ = 512
             test_dataset_for_eval, test_dataset_ = torch.utils.data.random_split(args.test_dataset, [size_, len(args.test_dataset) - size_])
-            args.test_dataset = test_dataset_
             dataloader = DataLoader(test_dataset_for_eval, shuffle=False, batch_size=512)
             acc_model = evaluate_model(args.model, dataloader, args.device)
         
@@ -52,7 +42,8 @@ class BASE_DATASET(Dataset):
         model_copy.eval()
         model_copy.to(args.device)
         
-        for i in tqdm(range(args.M)):
+        M = args.M // 2 if (args.sigma1 is not None and args.sigma2 is not None) else args.M
+        for i in tqdm(range(M)):  
             if args.sigma1 is not None:
                 delta = args.sigma1 * torch.randn_like(init_params)
                 new_params = init_params + delta
@@ -65,7 +56,7 @@ class BASE_DATASET(Dataset):
                     acc_model_copy = evaluate_model(model_copy, dataloader, args.device)
                     
                     while abs(acc_model_copy - acc_model) > args.threshold:
-                        delta = args.sigma * torch.randn_like(init_params)
+                        delta = args.sigma1 * torch.randn_like(init_params)
                         new_params = init_params + delta
                         new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
                         
@@ -129,50 +120,6 @@ class BASE_DATASET(Dataset):
     def generate(self):
         raise NotImplementedError("Please Implement this method")
         
-
-class ADV_DATASET_(BASE_DATASET):
-    def generate(self, base_dataset):
-        args = self.args
-        fmodel = fb.PyTorchModel(args.model, bounds=args.bounds, device=args.device)
-        attack = fb.attacks.LinfFastGradientAttack(random_start=True)
-        
-        epsilons = 0.02  # for adversaarial examples
-        I = 0
-        adv_dataset = []
-        
-        while True:
-            idx = torch.randint(0, len(base_dataset), (1,)).item()
-            image, label = base_dataset[idx]
-            logits = args.model(image.unsqueeze(dim=0).to(args.device))
-            prediction = torch.argmax(logits, dim=-1)
-        
-            if not label == prediction.item():
-                # print("Wrong answer!")
-                continue
-            
-            images = image.repeat(args.batch, 1, 1, 1)
-            labels = label * torch.ones(args.batch)
-            labels = labels.long()
-            images, labels = images.to(args.device), labels.to(args.device)
-            
-            _, advs, success = attack(fmodel, images, labels, epsilons=epsilons)
-            
-            if not all(success):
-                # print("Fail attack")
-                continue
-            
-            with torch.no_grad():
-                logits = args.model(advs)
-            target_predictions = torch.argmax(logits, dim=-1)
-            
-            adv_dataset.append((advs.detach().cpu(), target_predictions.detach().cpu()))
-            I += 1
-
-            if I == self.N_base:
-                break
-            
-        return adv_dataset
-        
         
 class L_DATASET_(BASE_DATASET):
     def __init__(self, args, idxs=[]):
@@ -201,22 +148,24 @@ class L_DATASET_(BASE_DATASET):
             if label1 == label2:
                 continue
             
-            with torch.no_grad():
-                logits1 = args.model(image1.unsqueeze(dim=0).to(args.device)).detach()
-                logits2 = args.model(image2.unsqueeze(dim=0).to(args.device)).detach()
-                predictions1 = torch.argmax(logits1, dim=-1)
-                predictions2 = torch.argmax(logits2, dim=-1)
+            # with torch.no_grad():
+            #     logits1 = args.model(image1.unsqueeze(dim=0).to(args.device)).detach()
+            #     logits2 = args.model(image2.unsqueeze(dim=0).to(args.device)).detach()
+            #     predictions1 = torch.argmax(logits1, dim=-1)
+            #     predictions2 = torch.argmax(logits2, dim=-1)
             
-            if (predictions1 != label1) or (predictions2 != label2):
-                continue
+            # if (predictions1 != label1) or (predictions2 != label2):
+            #     continue
             
             image1 = image1.repeat(args.batch, 1, 1, 1)
             image2 = image2.repeat(args.batch, 1, 1, 1)
             
-            # lambda_ = torch.rand(args.batch, 1, 1, 1)
-            alpha = 0.4
-            m = Beta(alpha, alpha)
-            lambda_ = m.sample((args.batch, 1, 1, 1))
+            lambda_ = torch.rand(args.batch, 1, 1, 1)
+            
+            # Uncomment to use Beta distribution
+            # alpha = 0.2
+            # m = Beta(alpha, alpha)
+            # lambda_ = m.sample((args.batch, 1, 1, 1))
             
             images = (1 - lambda_) * image1 + lambda_ * image2
             images = images.to(args.device)
@@ -237,9 +186,6 @@ class L_DATASET_(BASE_DATASET):
                 I += 1
                 self.idxs.append(idx1)
                 self.idxs.append(idx2)
-
-                # print(label1, label2)
-                # print(torch.unique(target_predictions, return_counts=True))
                 
             if I == self.N_base:
                 break
@@ -263,13 +209,14 @@ class FINAL_DATASET(Dataset):
             
             # TODO add another selection criterion
             for data in dataset:
-                # self.data.append(tuple(data[i][0] for i in range(len(data))))
+                # Uncomment to use selection criterion via lambda_
+                # lambda_ = data[2]
+                # lambda_ = torch.abs(lambda_ - 0.5)
+                # idx = torch.argmax(lambda_)
                 
-                lambda_ = data[2]
-                lambda_ = torch.abs(lambda_ - 0.5)
-                idx = torch.argmax(lambda_)
+                idx = 0
                 self.data.append(tuple(data[i][idx] for i in range(len(data))))
-                # print(data[1].shape)               
+                               
                 if len(self.data) == args.N:
                     break
             print("Elements in trigerset:", len(self.data))  

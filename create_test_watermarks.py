@@ -4,11 +4,10 @@ import glob
 import copy
 
 from torch.utils.data import DataLoader
-
 from datasets import get_dataset, get_bounds, get_num_classes
-from global_options import _models, _optimizers
+from global_options import _models
 from watermark_dataset import FINAL_DATASET
-from aux import flatten_params, recover_flattened
+from utils import evaluate_model
     
       
 if __name__ == '__main__':
@@ -19,11 +18,12 @@ if __name__ == '__main__':
     parser.add_argument('--device', help="device", type=str, default='cuda:0')
     parser.add_argument('--seed', help="seed", type=int, default=0)
     parser.add_argument('--model_name', help = "target model architecture", choices=list(_models.keys()), default='resnet34')
-    parser.add_argument('--model_path', help="path to saved model", type=str, default='./model_0.pt')
-    parser.add_argument('--models_name', help = "stolen model architecture", choices=list(_models.keys()), default='resnet18')
-    parser.add_argument('--models_path', help="path to stolen models", type=str, default='./models/resnet18')
+    parser.add_argument('--model_path', help="path to saved model", type=str, default='./models/teacher_cifar10_resnet34/model_1')
+    parser.add_argument('--models_name', help = "stolen model architecture", choices=list(_models.keys()), default='resnet34')
+    parser.add_argument('--models_path', help="path to stolen models", type=str, default='./models/stealing_resnet34_cifar10_soft')
     parser.add_argument('--N', help="size of trigger set", type=int, default=100)
-    parser.add_argument('--sigma', help="sigma", type=float, default=1e-3)
+    parser.add_argument('--sigma1', help="sigma in", type=float, default=None)
+    parser.add_argument('--sigma2', help="sigma out", type=float, default=None)
     parser.add_argument('--M', help="number of proxy models", type=int, default=32)
     parser.add_argument('--threshold', help="threshold for proxy models", type=float, default=None)
     parser.add_argument('--use_train', help="watermarks based on train?", type=bool, default=False)
@@ -61,59 +61,10 @@ if __name__ == '__main__':
         new_model.to(args.device)
         new_model.eval()
         
-        I_ = []
-        
-        for data in adv_loader:
-            advs, labels = data[0], data[1]
-            advs = advs.to(args.device)
-            logits = new_model(advs)
-            predictions = torch.argmax(logits, dim=-1)
-            predictions = predictions.cpu()
-            
-            I_.append(predictions == labels)
-            
-        I_ = torch.cat(I_)
-        I_mean.append(I_.float().mean())
-        print("Accuracy ", I_.float().mean().item())
+        I_mean.append(evaluate_model(new_model, adv_loader, args.device))
+        print("Accuracy ", I_mean[-1])
         
     I_mean = torch.tensor(I_mean)
     print("======================")
     print(f"Mean acc {I_mean.mean().item():.3f} +- {I_mean.std().item():.3f}")
-    
-
-    ### Evaluate accuracy on proxy models ###
-    print("Start evaluate proxy models")
-    flatten_dict = flatten_params(args.model.parameters())
-    init_params, init_indices = flatten_dict['params'], flatten_dict['indices']    
-
-    model_copy = copy.deepcopy(args.model)
-    model_copy.to(args.device)
-    model_copy.eval()
-    
-    I_mean = []
-    for i in range(len(path_models)):  
-        delta = args.sigma * torch.randn_like(init_params)
-        new_params = init_params + delta
-        new_params_unfl = recover_flattened(new_params, init_indices, model_copy)
-        
-        for i, params in enumerate(model_copy.parameters()):
-            params.data = new_params_unfl[i].data
-        
-        I_ = []
-        
-        for data in adv_loader:
-            advs, labels = data[0], data[1]
-            advs = advs.to(args.device)
-            logits = model_copy(advs)
-            predictions = torch.argmax(logits, dim=-1)
-            predictions = predictions.cpu()
-            
-            I_.append(predictions == labels)
-            
-        I_ = torch.cat(I_)
-        I_mean.append(I_.float().mean())
-        print("Accuracy ", I_.float().mean().item())
-        
-    I_mean = torch.tensor(I_mean)
     print("======================")
-    print(f"Mean acc {I_mean.mean().item():.3f} +- {I_mean.std().item():.3f}")
