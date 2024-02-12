@@ -1,5 +1,5 @@
-## Submission 281
-Probabilistically Robust Watermarking of Neural Networks
+
+## Probabilistically Robust Watermarking of Neural Networks
 
 ## Commands
 Create stealing models:
