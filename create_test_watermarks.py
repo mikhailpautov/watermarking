@@ -28,6 +28,9 @@ if __name__ == '__main__':
     parser.add_argument('--threshold', help="threshold for proxy models", type=float, default=None)
     parser.add_argument('--use_train', help="watermarks based on train?", type=bool, default=False)
     
+    parser.add_argument('--integrity_model_name', help = "target model architecture", choices=list(_models.keys()), default='resnet34')
+    parser.add_argument('--integrity_model_path', help="path to saved model", type=str, default='./models/teacher_cifar10_resnet34')
+    
     args = parser.parse_args()
     
     torch.manual_seed(args.seed)
