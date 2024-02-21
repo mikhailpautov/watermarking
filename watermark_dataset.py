@@ -1,12 +1,15 @@
 import torch
 import copy
 import time
+import glob
 
 from torch.distributions import Beta
 from torch.utils.data import DataLoader, Dataset
 from aux import flatten_params, recover_flattened
 from utils import evaluate_model
 from tqdm import tqdm
+
+from global_options import _models
 
 
 def reject_data(data, f):
@@ -81,27 +84,29 @@ class BASE_DATASET(Dataset):
                         
                 adv_dataset = update_adv_dataset
                 
-        integrity_model_path = glob.glob(args.integrity_model_path + '/*')
-        for model_path in integrity_model_path:
-            integrity_model = _models[integrity_model_name](num_classes=args.num_classes)
-            integrity_model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
-            integrity_model.to(args.device)
-            integrity_model.eval()
-            
-            update_adv_dataset = []
-            for data in adv_dataset:
-                advs, labels = data[0], data[1]
-                advs, labels = advs.to(args.device), labels.to(args.device)
+        if not integrity_model_path is None:
                 
-                with torch.no_grad():
-                    logits = integrity_model(advs)
-                predictions = torch.argmax(logits, dim=-1)
-                
-                f = (predictions != labels).detach().cpu()
-                if f.float().sum():
-                    update_adv_dataset.append(reject_data(data, f))
-                    
-            adv_dataset = update_adv_dataset
+            integrity_model_path = glob.glob(args.integrity_model_path + '/*')
+            for model_path in integrity_model_path:
+                integrity_model = _models[args.integrity_model_name](num_classes=args.num_classes)
+                integrity_model.load_state_dict(torch.load(model_path, map_location='cpu'))
+                integrity_model.to(args.device)
+                integrity_model.eval()
+
+                update_adv_dataset = []
+                for data in adv_dataset:
+                    advs, labels = data[0], data[1]
+                    advs, labels = advs.to(args.device), labels.to(args.device)
+
+                    with torch.no_grad():
+                        logits = integrity_model(advs)
+                    predictions = torch.argmax(logits, dim=-1)
+
+                    f = (predictions != labels).detach().cpu()
+                    if f.float().sum():
+                        update_adv_dataset.append(reject_data(data, f))
+
+                adv_dataset = update_adv_dataset
                 
         for data in adv_dataset:
             self.data.append(data_to_device(data))
