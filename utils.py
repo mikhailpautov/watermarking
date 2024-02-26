@@ -306,9 +306,13 @@ def models_mse(model1:nn.Module, model2:nn.Module)->float:
         return mse
 
 def models_l2(model1:nn.Module, model2:nn.Module())->float:
-    mse = models_mse(model1, model2)
-    l2 = mse ** 0.5
-    return l2
+    with torch.no_grad():
+        l2 = 0.0
+        parameters2 = list(model2.parameters())
+        for ind, parameter1 in enumerate(model1.parameters()):
+            parameter2 = parameters2[ind]
+            l2 += torch.sum((parameter1 - parameter2)**2).item()
+        return l2**0.5
 
 def get_dataset(dataset_name:str):
     transform_train = transforms.Compose([
@@ -354,12 +358,12 @@ def project_weights(model, target_model, delta):
     l2 = models_l2(model, target_model)
     
     # If the model in delta ball of target model do not project
-    if l2_distance <= delta:
+    if l2 <= delta:
         return
     
     scale_factor = delta / l2
     with torch.no_grad():
-        for model_param, target_model_param in zip(model.parameters(), target_model.parameter()):
+        for model_param, target_model_param in zip(model.parameters(), target_model.parameters()):
             diff = model_param.data - target_model_param.data
             adjusted_diff = diff * scale_factor
-            model_param.data = target_param.data + adjusted_diff
+            model_param.data = target_model_param.data + adjusted_diff
