@@ -305,6 +305,11 @@ def models_mse(model1:nn.Module, model2:nn.Module)->float:
         mse /= len(parameters2)
         return mse
 
+def models_l2(model1:nn.Module, model2:nn.Module())->float:
+    mse = models_mse(model1, model2)
+    l2 = mse ** 0.5
+    return l2
+
 def get_dataset(dataset_name:str):
     transform_train = transforms.Compose([
         transforms.RandomCrop(32, padding=4),
@@ -344,3 +349,17 @@ def get_trigger_set(size=100, indices=None):
     else:
         dataset = MNIST(root='./data', train=True, download=True, transform=trigger_transforms)
         return Subset(dataset, indices)
+
+def project_weights(model, target_model, delta):
+    l2 = models_l2(model, target_model)
+    
+    # If the model in delta ball of target model do not project
+    if l2_distance <= delta:
+        return
+    
+    scale_factor = delta / l2
+    with torch.no_grad():
+        for model_param, target_model_param in zip(model.parameters(), target_model.parameter()):
+            diff = model_param.data - target_model_param.data
+            adjusted_diff = diff * scale_factor
+            model_param.data = target_param.data + adjusted_diff
