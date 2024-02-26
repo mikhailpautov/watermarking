@@ -1,0 +1,49 @@
+from absl import flags, app
+from datasets import get_num_classes
+import os
+import torch
+from global_options import _models
+from utils import models_l2
+
+flags.DEFINE_string('student_path', './models/teacher_cifar10_resnet34/', 'Path to Student model')
+flags.DEFINE_string('teacher_name', 'resnet34', 'Target model architecture')
+flags.DEFINE_string('teacher_path', './models/teacher_cifar10_resnet34/model_1', 'Path to Teacher model')
+flags.DEFINE_string('dataset', 'cifar10', 'Dataset for model stealing')
+
+FLAGS = flags.FLAGS
+# Assuming flags are defined elsewhere in your script as shown in the provided code snippet
+
+def compare_models_with_target(target_model_path, models_dir, target_model_name, device='cpu'):
+    num_classes = get_num_classes(FLAGS.dataset)  # Ensure this function is defined and works as expected
+    
+    # Load the target model
+    target_model = _models[target_model_name](pretrained=False, num_classes=num_classes)
+    target_model.load_state_dict(torch.load(target_model_path, map_location=device))
+    target_model.to(device)
+    
+    # Iterate through each model file in the specified directory
+    for model_file in os.listdir(models_dir):
+        model_path = os.path.join(models_dir, model_file)
+        if os.path.isfile(model_path):
+            # Load the model to compare
+            compare_model = _models[target_model_name](pretrained=False, num_classes=num_classes)
+            compare_model.load_state_dict(torch.load(model_path, map_location=device))
+            compare_model.to(device)
+            
+            # Compute the L2 distance
+            distance = models_l2(target_model, compare_model)
+            print(f"Distance between target model '{target_model_path}' and '{model_file}': {distance}")
+
+def main(argv):
+    del argv  # Unused
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    
+    # Parameters from flags for target model and directory of other models
+    target_model_path = FLAGS.teacher_path
+    target_model_name = FLAGS.teacher_name
+    models_dir = FLAGS.student_path  # Assuming the models to compare are saved here
+    
+    compare_models_with_target(target_model_path, models_dir, target_model_name, device)
+
+if __name__ == '__main__':
+    app.run(main)
