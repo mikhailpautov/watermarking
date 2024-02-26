@@ -56,7 +56,7 @@ def main(argv):
     # Distillation
     for i in range(num_models):
         student_model = _models[student_name](pretrained=False, num_classes=num_classes)
-        steal(student_name, teacher_model, stealing_dataset, dataset, num_epochs, device,
+        steal(student_model, teacher_model, stealing_dataset, dataset, num_epochs, device,
               do_eval, epoch_eval, save_path, save_iter, T, alpha, policy, stop_acc)
 
 if __name__ == '__main__':
