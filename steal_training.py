@@ -1,26 +1,43 @@
-
 from absl import app, flags
+import torch
 from datasets import get_dataset, get_num_classes
 from distillation_extraction import steal
 from basic_train import train_model
 from global_options import _models
-from models import resnet18, resnet34
-from torchvision.models import vgg11
-import torch
 
+# Define flags
+flags.DEFINE_integer('num_epochs', 100, 'Training duration in number of epochs.')
+flags.DEFINE_integer('num_models', 10, 'Amount of models to be trained')
+flags.DEFINE_boolean('random_transform', False, 'Using random transform')
+flags.DEFINE_string('save_path', './models/resnet18/', 'Path to save model')
+flags.DEFINE_string('dataset', 'cifar10', 'Dataset for model stealing')
+flags.DEFINE_string('stealing_dataset', 'cifar10', 'Dataset on which stealing will be performed')
+flags.DEFINE_string('student_name', 'resnet34', 'Student model architecture')
+flags.DEFINE_string('teacher_name', 'resnet34', 'Target model architecture')
+flags.DEFINE_string('teacher_path', './teacher_cifar10_resnet34/model_1', 'Path to Teacher model')
+flags.DEFINE_boolean('do_eval', True, 'Evaluating student model during distillation')
+flags.DEFINE_integer('epoch_eval', 10, 'How often eval should be performed')
+flags.DEFINE_integer('save_iter', 5, 'How often model should be saved')
+flags.DEFINE_float('temperature', 1.0, 'The Temperature hyperparameter for stealing attacks')
+flags.DEFINE_float('alpha', 0.3, 'Alpha hyperparameter for RGT stealing attacks')
+flags.DEFINE_string('policy', 'soft', 'Stealing policy')
+flags.DEFINE_float('stop_acc', 0.99, 'Early stop if student got sufficient accuracy')
 
 FLAGS = flags.FLAGS
 
 def main(argv):
-    # Parameters definition
+    del argv  # Unused
+
+    # Setup device
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    del argv
+
+    # Parameters from flags
     num_epochs = FLAGS.num_epochs
     num_models = FLAGS.num_models
     save_path = FLAGS.save_path
     dataset = FLAGS.dataset
     stealing_dataset = FLAGS.stealing_dataset
-    teacher_name =  FLAGS.target_name
+    teacher_name = FLAGS.teacher_name
     teacher_path = FLAGS.teacher_path
     student_name = FLAGS.student_name
     do_eval = FLAGS.do_eval
@@ -32,54 +49,15 @@ def main(argv):
     stop_acc = FLAGS.stop_acc
     num_classes = get_num_classes(dataset)
 
-
+    # Load teacher model
     teacher_model = _models[teacher_name](pretrained=False, num_classes=num_classes)
     teacher_model.load_state_dict(torch.load(teacher_path))
 
+    # Distillation
     for i in range(num_models):
         student_model = _models[student_name](pretrained=False, num_classes=num_classes)
-        steal(student_name, teacher_model, stealing_dataset, dataset, num_epochs, device, do_eval, epoch_eval,
-              save_path, save_iter, T, alpha, policy, stop_acc)
-    # teacher_model = resnet34(pretrained=False)
-    # teacher_model.fc = torch.nn.Linear(512, 10)
-    # teacher_model.load_state_dict(torch.load('./teacher_cifar10_resnet34/model_1'))
-        
-    # for i in range(10):
-    #     student_model = resnet34(pretrained=False)
-    #     # student_model.classifier[6] = torch.nn.Linear(in_features=4096, out_features=10)
-    #     student_model.fc = torch.nn.Linear(512, 10)     
-    #     steal(student_model, teacher_model, dataset='SVHN', evalset='cifar10',
-    #         num_epochs=100, device='cuda', do_eval=True, epoch_eval=5, 
-    #         savedir='./stealing_resnet34_SVHN_soft', save_iter=5, T=1, alpha=0.3, policy='soft', stop_acc=0.99)
-
-    # Train teacher model s
-
-    for i in range(2):
-        model = resnet34(pretrained=False)
-        model.fc = torch.nn.Linear(in_features=512, out_features=100)
-        train_model(model, 'cifar100', 100, do_eval=True, epoch_eval=5, savedir='./teacher_cifar100_resnet34', save_iter=10, device='cuda')
-
-
-    
-
+        steal(student_name, teacher_model, stealing_dataset, dataset, num_epochs, device,
+              do_eval, epoch_eval, save_path, save_iter, T, alpha, policy, stop_acc)
 
 if __name__ == '__main__':
-    flags.DEFINE_integer('num_epochs', 100, 'Training duration in number of epochs.')
-    flags.DEFINE_integer('num_models', 100, 'Amount of models to be trained')
-    flags.DEFINE_boolean('random_transform', False, 'Using random transform')
-    flags.DEFINE_string('target_path', '/workspace/watermarking/MODELS/epochs_50_size_0.002_randtf/models/model_watermarking.pt', 'Path to target model')
-    flags.DEFINE_string('save_path', './models/resnet18/', 'Path to save model')
-    flags.DEFINE_string('dataset', 'cifar10', 'Dataset for model stealing')  
-    flags.DEFINE_string('stealing_dataset', 'cifar10', 'Dataset on which stealing will be performed')  
-    flags.DEFINE_string('student_name', 'resnet34', 'Student model architecture')
-    flags.DEFINE_string('teacher_name', 'resnet34', 'Target model architecture')
-    flags.DEFINE_string('teacher_path', './teacher_cifar10_resnet34/model_1', 'Path to Teacher model')
-    flags.DEFINE_bool('do_eval', True, 'Evaluating studnet model during distillation')
-    flags.DEFINE_integer('epoch_eval', 10, 'How often eval should be performed')
-    flags.DEFINE_integer('save_iter', 5, 'How often model should be saved')
-    flags.DEFINE_float('temperature', 1, 'The Temperature hyperparameter for stealing attacks')
-    flags.DEFINE_float('alpha', 0.3, 'Alpha hyperparameter for RGT stealing attacks')
-    flags.DEFINE_string('policy', 'soft', 'Stealing policy')
-    flags.DEFINE_float('stop_acc', 0.99, 'Early stop if student got sufficient accuracy')
-    
     app.run(main)
