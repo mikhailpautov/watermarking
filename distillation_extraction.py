@@ -1,14 +1,11 @@
-import os
-import argparse
 import torch
 import torch.nn.functional as F
-
-from datasets import get_dataset, get_num_classes
+from datasets import get_dataset
 from torch import nn, optim
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-from utils import evaluate_model
-from global_options import _models
+from utils import evaluate_model, models_l2, project_weights
+import os
 
 def distillation_loss(preds, labels, teacher_preds, T, alpha):
     teacher_loss = F.kl_div(F.log_softmax(preds / T, dim=-1), F.softmax(teacher_preds / T, dim=-1), reduction='batchmean')
@@ -16,7 +13,8 @@ def distillation_loss(preds, labels, teacher_preds, T, alpha):
 
     return (1 - alpha) * ground_loss + alpha * teacher_loss
 
-def steal(model, teacher_model, dataset, evalset, num_epochs, device, do_eval=False, epoch_eval=5,  opt=None, lr_scheduler=None, savedir='./model.pt', save_iter=10, policy='soft', T=20.0, alpha=0.7, stop_acc=0.99):
+def steal(model, teacher_model, dataset, evalset, num_epochs, device, do_eval=False, epoch_eval=5,  opt=None, lr_scheduler=None, 
+          savedir='./model.pt', save_iter=10, policy='soft', T=20.0, alpha=0.7, stop_acc=0.99, delta=None):
 
     print(f'Training with policy - {policy}. Training on {dataset}. Evaluation on {evalset}')
     BATCH_SIZE=256
@@ -70,8 +68,8 @@ def steal(model, teacher_model, dataset, evalset, num_epochs, device, do_eval=Fa
     print(f'Teacher Model Train Acc {train_teacher_acc:.3f}, Test Acc {test_teacher_acc:.3f}')
 
     # Checking save dir and save name
-    os.makedirs(savedir, exist_ok=True)
-    
+    if not os.path.exists(savedir):
+        os.mkdir(savedir)
     save_name = 0
     while os.path.isfile(os.path.join(savedir, f'model_{save_name}')):
         save_name += 1
@@ -99,6 +97,10 @@ def steal(model, teacher_model, dataset, evalset, num_epochs, device, do_eval=Fa
             opt.zero_grad()
             loss.backward()
             opt.step()
+
+            if delta is not None:
+                project_weights(model, teacher_model, delta)
+                print(f'L2 {models_l2(model, teacher_model)} Delta {delta}')
             
             train_loss += loss.item()
 
@@ -158,37 +160,3 @@ def steal(model, teacher_model, dataset, evalset, num_epochs, device, do_eval=Fa
 
         print(f'Epoch {epoch + 1} Train loss {train_loss_history[-1]:.4f} Last Test Loss {test_loss_history[-1]:.4f} Train Student Acc {train_student_acc[-1]:.4f}')
     return train_loss_history, test_loss_history
-
-
-if __name__ == '__main__':
-    parser = argparse.ArgumentParser()
-    
-    parser.add_argument('--dataset', help="dataset name", type=str, choices=['imagenet', 'cifar10', 'cifar100', 'mnist', 'svhn'], default='cifar10')
-    parser.add_argument('--evalset', help="evalset name", type=str, choices=['imagenet', 'cifar10', 'cifar100', 'mnist', 'svhn'], default='cifar10')
-    parser.add_argument('--batch', help="batch_size", type=int, default=64)
-    parser.add_argument('--device', help="device", type=str, default='cuda:0')
-    parser.add_argument('--seed', help="seed", type=int, default=0)
-    parser.add_argument('--model_name', help = "target model architecture", choices=list(_models.keys()), default='resnet34')
-    parser.add_argument('--model_path', help="path to saved model", type=str, default='./models/teacher_cifar10_resnet34/model_1')
-    parser.add_argument('--student_name', help = "stolen model architecture", choices=list(_models.keys()), default='resnet34')
-    parser.add_argument('--save_dir', help="Path to save model", type=str, default=None)
-    parser.add_argument('--num_models', help="Amount of models to be stealed", type=int, default=10)
-    parser.add_argument('--policy', help="device", type=str, choices=['soft', 'hard', 'rgt'], default='soft')
-    
-    args = parser.parse_args()
-    
-    torch.manual_seed(args.seed)
-    torch.cuda.manual_seed(args.seed)
-    
-    args.num_classes = get_num_classes(args.dataset)
-    teacher_model = _models[args.model_name](num_classes=args.num_classes)
-    teacher_model.load_state_dict(torch.load(args.model_path, map_location='cpu'))
-    
-    if args.save_dir is None:
-        args.save_dir = './models/stealing_' + args.student_name + '_' + args.evalset + '_' + args.policy
-        
-    for i in range(args.num_models):
-        student_model = _models[args.student_name](num_classes=args.num_classes)
-        steal(student_model, teacher_model, dataset=args.dataset, evalset=args.evalset,
-            num_epochs=100, device=args.device, do_eval=True, epoch_eval=5, 
-            savedir=args.save_dir, save_iter=5, T=1, alpha=0.3, policy=args.policy, stop_acc=0.99)
